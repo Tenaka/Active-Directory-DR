@@ -1,0 +1,226 @@
+﻿<#
+.SYNOPSIS
+    Daily Active Directory backup script for DNS zones, GPOs, and AD objects.
+.DESCRIPTION
+    Creates daily backups organized by day of week for DNS zones, Group Policy Objects,
+    and Active Directory object inventory including users, computers, groups, and OUs.
+.NOTES
+    Run this script on a Domain Controller with appropriate permissions.
+    Requires Enterprise/Domain Admin privileges for full backup capability.
+#>
+
+[CmdletBinding()]
+param()
+
+# Configuration
+$backupPath = "C:\ADBackups"
+$dayOfWeek = (Get-Date).DayOfWeek
+$services = @("DNS", "GPO", "ADObjects")
+$dnsSystemPath = "$env:SystemRoot\System32\dns"
+
+# Initialize backup directory structure
+foreach ($service in $services) {
+    $targetPath = Join-Path -Path $backupPath -ChildPath "$service\$dayOfWeek"
+    
+    if (-not (Test-Path -Path $targetPath)) {
+        try {
+            New-Item -Path $targetPath -ItemType Directory -Force -ErrorAction Stop | Out-Null
+            Write-Verbose "Created directory: $targetPath"
+        }
+        catch {
+            Write-Error "Failed to create backup directory $targetPath : $_"
+            exit 1
+        }
+    }
+}
+
+# DNS Zone Backup
+Write-Host "Starting DNS zone backup..." -ForegroundColor Cyan
+$dnsBackupPath = Join-Path -Path $backupPath -ChildPath "DNS\$dayOfWeek"
+
+try {
+    $dnsZones = Get-DnsServerZone -ErrorAction Stop | Where-Object { -not $_.IsAutoCreated }
+    $zoneCount = 0
+    #export server settings
+    dnscmd /exportsettings 
+    
+    foreach ($zone in $dnsZones) {
+        $zoneName = $zone.ZoneName
+        
+        try {
+                # Export zone to file
+                Export-DnsServerZone -Name $zoneName -FileName $zoneName -ErrorAction Stop            
+            }
+        catch 
+            {
+                Write-Warning "Failed to backup DNS zone '$zoneName': $_"
+            }
+
+            # Copy to backup location
+                Copy-Item -Path "C:\Windows\System32\dns\*" -Destination $dnsBackupPath -Force -ErrorAction Stop
+
+                Write-Verbose "Backed up DNS zone: $zoneName"
+         
+
+    }
+    
+    Write-Host "DNS backup complete: $zoneCount zones backed up" -ForegroundColor Green
+}
+catch {
+    Write-Error "Failed to retrieve DNS zones: $_"
+}
+
+# Group Policy Backup
+Write-Host "Starting GPO backup..." -ForegroundColor Cyan
+$gpoBackupPath = Join-Path -Path $backupPath -ChildPath "GPO\$dayOfWeek"
+
+try {
+    # Clean previous GPO backups for this day
+    if (Test-Path -Path $gpoBackupPath) {
+        Get-ChildItem -Path $gpoBackupPath -Recurse | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    
+    # Backup all GPOs
+    $gpoBackupResult = Backup-GPO -All -Path $gpoBackupPath -ErrorAction Stop
+    $gpoCount = ($gpoBackupResult | Measure-Object).Count
+    
+    # Save GPO backup reference
+    $gpoBackupResult | Select-Object DisplayName, GpoId, BackupDirectory, CreationTime |
+        Export-Csv -Path "$gpoBackupPath\GPOBackupReference.csv" -NoTypeInformation
+    
+    Write-Host "GPO backup complete: $gpoCount GPOs backed up" -ForegroundColor Green
+}
+catch {
+    Write-Error "Failed to backup GPOs: $_"
+}
+
+# Active Directory Objects Inventory
+Write-Host "Starting AD objects inventory..." -ForegroundColor Cyan
+$adObjectsPath = Join-Path -Path $backupPath -ChildPath "ADObjects\$dayOfWeek"
+$adInventoryFile = Join-Path -Path $adObjectsPath -ChildPath "ADObjects.txt"
+
+try {
+    # Initialize output file
+    $output = @()
+    $output += "=" * 80
+    $output += "Active Directory Objects Inventory - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    $output += "Domain: $((Get-ADDomain).DNSRoot)"
+    $output += "=" * 80
+    $output += ""
+    
+    # Computers
+    $output += "#" * 80
+    $output += "COMPUTERS"
+    $output += "#" * 80
+    $computers = Get-ADComputer -Filter * -Properties Enabled, OperatingSystem, LastLogonDate |
+        Select-Object Name, DistinguishedName, Enabled, OperatingSystem, LastLogonDate
+    $output += $computers | Format-Table -AutoSize | Out-String
+    $output += "Total Computers: $(($computers | Measure-Object).Count)"
+    $output += ""
+    
+    # Users
+    $output += "#" * 80
+    $output += "USERS"
+    $output += "#" * 80
+    $users = Get-ADUser -Filter * -Properties Enabled, EmailAddress, LastLogonDate |
+        Select-Object Name, DistinguishedName, Enabled, EmailAddress, LastLogonDate
+    $output += $users | Format-Table -AutoSize | Out-String
+    $output += "Total Users: $(($users | Measure-Object).Count)"
+    $output += ""
+    
+    # Groups
+    $output += "#" * 80
+    $output += "GROUPS"
+    $output += "#" * 80
+    $groups = Get-ADGroup -Filter * -Properties GroupScope, GroupCategory |
+        Select-Object Name, DistinguishedName, GroupScope, GroupCategory
+    $output += $groups | Format-Table -AutoSize | Out-String
+    $output += "Total Groups: $(($groups | Measure-Object).Count)"
+    $output += ""
+    
+    # Group Memberships
+    $output += "#" * 80
+    $output += "GROUP MEMBERSHIPS"
+    $output += "#" * 80
+    foreach ($group in $groups) {
+        try {
+            $members = Get-ADGroupMember -Identity $group.DistinguishedName -ErrorAction SilentlyContinue |
+                Select-Object Name, DistinguishedName, ObjectClass
+            
+            if ($members) {
+                $output += "`nGroup: $($group.Name)"
+                $output += "-" * 80
+                $output += $members | Format-Table -AutoSize | Out-String
+            }
+        }
+        catch {
+            Write-Verbose "Could not retrieve members for group: $($group.Name)"
+        }
+    }
+    $output += ""
+    
+    # Organizational Units
+    $output += "#" * 80
+    $output += "ORGANIZATIONAL UNITS"
+    $output += "#" * 80
+    $ous = Get-ADOrganizationalUnit -Filter * -Properties Description |
+        Select-Object Name, DistinguishedName, Description
+    $output += $ous | Format-Table -AutoSize | Out-String
+    $output += "Total OUs: $(($ous | Measure-Object).Count)"
+    $output += ""
+    
+    # GPO Information
+    $output += "#" * 80
+    $output += "GROUP POLICY OBJECTS"
+    $output += "#" * 80
+    $gpos = Get-GPO -All | Select-Object DisplayName, Id, CreationTime, ModificationTime
+    $output += $gpos | Format-Table -AutoSize | Out-String
+    $output += "Total GPOs: $(($gpos | Measure-Object).Count)"
+    $output += ""
+    
+    # GPO Links
+    $output += "#" * 80
+    $output += "GPO LINKS BY OU"
+    $output += "#" * 80
+    foreach ($ou in $ous) {
+        try {
+            $gpoLinks = Get-GPInheritance -Target $ou.DistinguishedName -ErrorAction SilentlyContinue
+            
+            if ($gpoLinks.GpoLinks) {
+                $output += "`nOU: $($ou.DistinguishedName)"
+                $output += "-" * 80
+                $output += $gpoLinks.GpoLinks | Select-Object DisplayName, Enabled, Enforced, Order |
+                    Format-Table -AutoSize | Out-String
+            }
+        }
+        catch {
+            Write-Verbose "Could not retrieve GPO links for OU: $($ou.DistinguishedName)"
+        }
+    }
+    
+    # Write to file
+    $output | Out-File -FilePath $adInventoryFile -Encoding UTF8 -Force
+    
+    # Export structured data as CSV for easier parsing
+    $computers | Export-Csv -Path "$adObjectsPath\Computers.csv" -NoTypeInformation
+    $users | Export-Csv -Path "$adObjectsPath\Users.csv" -NoTypeInformation
+    $groups | Export-Csv -Path "$adObjectsPath\Groups.csv" -NoTypeInformation
+    $ous | Export-Csv -Path "$adObjectsPath\OUs.csv" -NoTypeInformation
+    $gpos | Export-Csv -Path "$adObjectsPath\GPOs.csv" -NoTypeInformation
+    
+    Write-Host "AD inventory complete: Data saved to $adObjectsPath" -ForegroundColor Green
+}
+catch {
+    Write-Error "Failed to create AD objects inventory: $_"
+}
+
+# Summary
+Write-Host ("=" * 80) -ForegroundColor Yellow
+Write-Host "Backup Summary - $dayOfWeek" -ForegroundColor Yellow
+Write-Host ("=" * 80) -ForegroundColor Yellow
+Write-Host "Backup Location: $backupPath\*\$dayOfWeek" -ForegroundColor White
+Write-Host "DNS Zones: $zoneCount backed up" -ForegroundColor White
+Write-Host "GPOs: $gpoCount backed up" -ForegroundColor White
+Write-Host "AD Objects: Inventory completed" -ForegroundColor White
+Write-Host ("=" * 80) -ForegroundColor Yellow
+
