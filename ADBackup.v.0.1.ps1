@@ -2,11 +2,12 @@
 .SYNOPSIS
     Daily Active Directory backup script for DNS zones, GPOs, and AD objects.
 .DESCRIPTION
-    Creates daily backups organized by day of week for DNS zones, Group Policy Objects,
-    and Active Directory object inventory including users, computers, groups, and OUs.
+    Creates daily backups organized by day of week for DNS zones, DNS server configuration,
+    Group Policy Objects, and Active Directory object inventory including users, computers, groups, and OUs.
 .NOTES
     Run this script on a Domain Controller with appropriate permissions.
     Requires Enterprise/Domain Admin privileges for full backup capability.
+    Version: 0.2
 #>
 
 [CmdletBinding()]
@@ -34,17 +35,215 @@ foreach ($service in $services) {
     }
 }
 
-# DNS Zone Backup
-Write-Host "Starting DNS zone backup..." -ForegroundColor Cyan
+# DNS Zone and Configuration Backup
+Write-Host "Starting DNS backup..." -ForegroundColor Cyan
 $dnsBackupPath = Join-Path -Path $backupPath -ChildPath "DNS\$dayOfWeek"
+$dnsConfigFile = Join-Path -Path $dnsBackupPath -ChildPath "DNSServerConfig.txt"
 
 try {
+    # Initialize DNS configuration output
+    $dnsConfig = @()
+    $dnsConfig += "=" * 80
+    $dnsConfig += "DNS Server Configuration Backup"
+    $dnsConfig += "Server: $env:COMPUTERNAME"
+    $dnsConfig += "Backup Date: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    $dnsConfig += "=" * 80
+    $dnsConfig += ""
+    
+    # Export DNS server settings using dnscmd
+    Write-Host "  Exporting DNS server configuration..." -ForegroundColor Yellow
+    
+    # Server Info
+    $dnsConfig += "#" * 80
+    $dnsConfig += "DNS SERVER INFORMATION"
+    $dnsConfig += "#" * 80
+    $serverInfo = dnscmd . /info 2>&1
+    $dnsConfig += $serverInfo
+    $dnsConfig += ""
+    
+    # Forwarders
+    $dnsConfig += "#" * 80
+    $dnsConfig += "FORWARDERS"
+    $dnsConfig += "#" * 80
+    try {
+        $forwarders = Get-DnsServerForwarder -ErrorAction Stop
+        $dnsConfig += "Forwarder IP Addresses:"
+        foreach ($fwd in $forwarders.IPAddress) {
+            $dnsConfig += "  $fwd"
+        }
+        $dnsConfig += "Use Root Hints: $($forwarders.UseRootHint)"
+        $dnsConfig += "Timeout: $($forwarders.Timeout) seconds"
+        $dnsConfig += "Enable Reordering: $($forwarders.EnableReordering)"
+    }
+    catch {
+        $dnsConfig += "Could not retrieve forwarders: $_"
+    }
+    $dnsConfig += ""
+    
+    # Alternative forwarders using dnscmd
+    $dnsConfig += "FORWARDERS (via dnscmd):"
+    $forwardersCmd = dnscmd . /info /Forwarders 2>&1
+    $dnsConfig += $forwardersCmd
+    $dnsConfig += ""
+    
+    # Root Hints
+    $dnsConfig += "#" * 80
+    $dnsConfig += "ROOT HINTS"
+    $dnsConfig += "#" * 80
+    try {
+        $rootHints = Get-DnsServerRootHint -ErrorAction Stop
+        $dnsConfig += "Root Hint Servers:"
+        foreach ($hint in $rootHints) {
+            $dnsConfig += "  Name Server: $($hint.NameServer.RecordData.NameServer)"
+            foreach ($ip in $hint.IPAddress) {
+                $dnsConfig += "    IP: $($ip.RecordData.IPv4Address)$($ip.RecordData.IPv6Address)"
+            }
+        }
+    }
+    catch {
+        $dnsConfig += "Could not retrieve root hints: $_"
+    }
+    $dnsConfig += ""
+    
+    # Alternative root hints using dnscmd
+    $dnsConfig += "ROOT HINTS (via dnscmd):"
+    $rootHintsCmd = dnscmd . /info /RootHints 2>&1
+    $dnsConfig += $rootHintsCmd
+    $dnsConfig += ""
+    
+    # Recursion Settings
+    $dnsConfig += "#" * 80
+    $dnsConfig += "RECURSION SETTINGS"
+    $dnsConfig += "#" * 80
+    try {
+        $recursion = Get-DnsServerRecursion -ErrorAction Stop
+        $dnsConfig += "Recursion Enabled: $($recursion.Enable)"
+        $dnsConfig += "Additional Timeout: $($recursion.AdditionalTimeout) seconds"
+        $dnsConfig += "Retry Interval: $($recursion.RetryInterval) seconds"
+        $dnsConfig += "Timeout: $($recursion.Timeout) seconds"
+        $dnsConfig += "Secure Response: $($recursion.SecureResponse)"
+    }
+    catch {
+        $dnsConfig += "Could not retrieve recursion settings: $_"
+    }
+    $dnsConfig += ""
+    
+    # Alternative recursion using dnscmd
+    $dnsConfig += "RECURSION (via dnscmd):"
+    $recursionCmd = dnscmd . /info /Recursion 2>&1
+    $dnsConfig += $recursionCmd
+    $dnsConfig += ""
+    
+    # Scavenging Configuration
+    $dnsConfig += "#" * 80
+    $dnsConfig += "SCAVENGING CONFIGURATION"
+    $dnsConfig += "#" * 80
+    try {
+        $scavenging = Get-DnsServerScavenging -ErrorAction Stop
+        $dnsConfig += "Scavenging Enabled: $($scavenging.ScavengingState)"
+        $dnsConfig += "Scavenging Interval: $($scavenging.ScavengingInterval)"
+        $dnsConfig += "No-Refresh Interval: $($scavenging.NoRefreshInterval)"
+        $dnsConfig += "Refresh Interval: $($scavenging.RefreshInterval)"
+        $dnsConfig += "Last Scavenge Time: $($scavenging.LastScavengeTime)"
+    }
+    catch {
+        $dnsConfig += "Could not retrieve scavenging settings: $_"
+    }
+    $dnsConfig += ""
+    
+    # Alternative scavenging using dnscmd
+    $dnsConfig += "SCAVENGING (via dnscmd):"
+    $scavengingCmd = dnscmd . /info /ScavengingInterval 2>&1
+    $dnsConfig += $scavengingCmd
+    $dnsConfig += ""
+    
+    # Server-Level Settings
+    $dnsConfig += "#" * 80
+    $dnsConfig += "SERVER-LEVEL SETTINGS"
+    $dnsConfig += "#" * 80
+    try {
+        $server = Get-DnsServer -ErrorAction Stop
+        $dnsConfig += "Server Name: $($server.ServerSetting.ComputerName)"
+        $dnsConfig += "Listen Addresses: $($server.ServerSetting.ListenAddresses -join ', ')"
+        $dnsConfig += "Round Robin: $($server.ServerSetting.RoundRobin)"
+        $dnsConfig += "Local Net Priority: $($server.ServerSetting.LocalNetPriority)"
+        $dnsConfig += "Bind Secondaries: $($server.ServerSetting.BindSecondaries)"
+        $dnsConfig += "Strict File Parsing: $($server.ServerSetting.StrictFileParsing)"
+        $dnsConfig += "Enable DNSSEC: $($server.ServerSetting.EnableDnsSec)"
+        $dnsConfig += "Enable EDNS Probes: $($server.ServerSetting.EnableEDnsProbes)"
+        $dnsConfig += "Forwarder Timeout: $($server.ServerSetting.ForwardingTimeout)"
+        $dnsConfig += "Cache Pollution Protection: $($server.ServerSetting.EnablePollutionProtection)"
+        $dnsConfig += "Default Aging State: $($server.ServerSetting.DefaultAgingState)"
+        $dnsConfig += "Default Refresh Interval: $($server.ServerSetting.DefaultRefreshInterval)"
+        $dnsConfig += "Default No-Refresh Interval: $($server.ServerSetting.DefaultNoRefreshInterval)"
+    }
+    catch {
+        $dnsConfig += "Could not retrieve server settings: $_"
+    }
+    $dnsConfig += ""
+    
+    # Advanced Server Settings via dnscmd
+    $dnsConfig += "#" * 80
+    $dnsConfig += "ADVANCED SERVER SETTINGS"
+    $dnsConfig += "#" * 80
+    $advancedSettings = @(
+        "/BootMethod",
+        "/EnableGlobalQueryBlockList",
+        "/GlobalQueryBlockList",
+        "/EventLogLevel",
+        "/LogLevel",
+        "/LogFilePath",
+        "/MaxCacheTTL",
+        "/MaxNegativeCacheTTL",
+        "/SendPort",
+        "/WriteAuthorityNS",
+        "/SecureResponses",
+        "/RpcProtocol",
+        "/NameCheckFlag"
+    )
+    
+    foreach ($setting in $advancedSettings) {
+        $dnsConfig += ""
+        $dnsConfig += "Setting: $setting"
+        $settingValue = dnscmd . /info $setting 2>&1
+        $dnsConfig += $settingValue
+    }
+    $dnsConfig += ""
+    
+    # Zone List with Details
+    $dnsConfig += "#" * 80
+    $dnsConfig += "ZONE LIST WITH CONFIGURATION"
+    $dnsConfig += "#" * 80
+    $zones = Get-DnsServerZone -ErrorAction Stop
+    foreach ($zone in $zones) {
+        $dnsConfig += ""
+        $dnsConfig += "Zone: $($zone.ZoneName)"
+        $dnsConfig += "  Type: $($zone.ZoneType)"
+        $dnsConfig += "  Dynamic Update: $($zone.DynamicUpdate)"
+        $dnsConfig += "  Replication Scope: $($zone.ReplicationScope)"
+        $dnsConfig += "  DS Integrated: $($zone.IsDsIntegrated)"
+        $dnsConfig += "  Auto Created: $($zone.IsAutoCreated)"
+        $dnsConfig += "  Paused: $($zone.IsPaused)"
+        $dnsConfig += "  Reverse Lookup: $($zone.IsReverseLookupZone)"
+        $dnsConfig += "  Signed: $($zone.IsSigned)"
+        $dnsConfig += "  Secure Secondaries: $($zone.SecureSecondaries)"
+        if ($zone.NotifyServers) {
+            $dnsConfig += "  Notify Servers: $($zone.NotifyServers -join ', ')"
+        }
+        if ($zone.MasterServers) {
+            $dnsConfig += "  Master Servers: $($zone.MasterServers.IPAddressToString -join ', ')"
+        }
+    }
+    $dnsConfig += ""
+    
+    # Save DNS configuration to file
+    $dnsConfig | Out-File -FilePath $dnsConfigFile -Encoding UTF8 -Force
+    Write-Host "  DNS server configuration saved to: DNSServerConfig.txt" -ForegroundColor Green
+    
+    # Backup DNS Zone Files
+    Write-Host "  Backing up DNS zone files..." -ForegroundColor Yellow
     $dnsZones = Get-DnsServerZone -ErrorAction Stop | Where-Object { -not $_.IsAutoCreated }
     $zoneCount = 0
-    
-    # Export DNS server settings
-    Write-Host "  Exporting DNS server settings..." -ForegroundColor Yellow
-    $dnsConfigOutput = dnscmd . /exportsettings "$dnsBackupPath\DNSServerConfig.txt"
     
     foreach ($zone in $dnsZones) {
         $zoneName = $zone.ZoneName
@@ -69,10 +268,10 @@ try {
         Write-Warning "Failed to copy some DNS files: $_"
     }
     
-    Write-Host "DNS backup complete: $zoneCount zones backed up" -ForegroundColor Green
+    Write-Host "DNS backup complete: $zoneCount zones + server configuration backed up" -ForegroundColor Green
 }
 catch {
-    Write-Error "Failed to retrieve DNS zones: $_"
+    Write-Error "Failed to backup DNS: $_"
 }
 
 # Group Policy Backup
@@ -264,7 +463,7 @@ Write-Host "Backup Summary - $dayOfWeek" -ForegroundColor Yellow
 Write-Host ("=" * 80) -ForegroundColor Yellow
 Write-Host "Backup Location: $backupPath\*\$dayOfWeek" -ForegroundColor White
 Write-Host "DNS Zones: $zoneCount backed up" -ForegroundColor White
-Write-Host "DNS Server Config: Exported" -ForegroundColor White
+Write-Host "DNS Server Config: Complete (forwarders, recursion, scavenging, server settings)" -ForegroundColor White
 Write-Host "GPOs: $gpoCount backed up" -ForegroundColor White
 Write-Host "GPO Permissions: $(($gpoPermissions | Measure-Object).Count) apply rights captured" -ForegroundColor White
 Write-Host "AD Objects: Inventory completed" -ForegroundColor White
