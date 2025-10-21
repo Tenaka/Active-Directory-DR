@@ -458,7 +458,7 @@ catch {
 }
 
 # Summary
-Write-Host "`n" + ("=" * 80) -ForegroundColor Yellow
+Write-Host ("=" * 80) -ForegroundColor Yellow
 Write-Host "Backup Summary - $dayOfWeek" -ForegroundColor Yellow
 Write-Host ("=" * 80) -ForegroundColor Yellow
 Write-Host "Backup Location: $backupPath\*\$dayOfWeek" -ForegroundColor White
@@ -468,3 +468,4 @@ Write-Host "GPOs: $gpoCount backed up" -ForegroundColor White
 Write-Host "GPO Permissions: $(($gpoPermissions | Measure-Object).Count) apply rights captured" -ForegroundColor White
 Write-Host "AD Objects: Inventory completed" -ForegroundColor White
 Write-Host ("=" * 80) -ForegroundColor Yellow
+
