@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Daily Active Directory backup script for DNS zones, GPOs, and AD objects.
 .DESCRIPTION
@@ -41,27 +41,32 @@ $dnsBackupPath = Join-Path -Path $backupPath -ChildPath "DNS\$dayOfWeek"
 try {
     $dnsZones = Get-DnsServerZone -ErrorAction Stop | Where-Object { -not $_.IsAutoCreated }
     $zoneCount = 0
-    #export server settings
-    dnscmd /exportsettings 
+    
+    # Export DNS server settings
+    Write-Host "  Exporting DNS server settings..." -ForegroundColor Yellow
+    $dnsConfigOutput = dnscmd . /exportsettings "$dnsBackupPath\DNSServerConfig.txt"
     
     foreach ($zone in $dnsZones) {
         $zoneName = $zone.ZoneName
         
         try {
-                # Export zone to file
-                Export-DnsServerZone -Name $zoneName -FileName $zoneName -ErrorAction Stop            
-            }
-        catch 
-            {
-                Write-Warning "Failed to backup DNS zone '$zoneName': $_"
-            }
-
-            # Copy to backup location
-                Copy-Item -Path "C:\Windows\System32\dns\*" -Destination $dnsBackupPath -Force -ErrorAction Stop
-
-                Write-Verbose "Backed up DNS zone: $zoneName"
-         
-
+            # Export zone to file
+            Export-DnsServerZone -Name $zoneName -FileName $zoneName -ErrorAction Stop
+            $zoneCount++
+            Write-Verbose "Exported DNS zone: $zoneName"
+        }
+        catch {
+            Write-Warning "Failed to export DNS zone '$zoneName': $_"
+        }
+    }
+    
+    # Copy all DNS files to backup location
+    try {
+        Copy-Item -Path "$dnsSystemPath\*" -Destination $dnsBackupPath -Force -ErrorAction Stop
+        Write-Host "  DNS zone files copied to backup" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Failed to copy some DNS files: $_"
     }
     
     Write-Host "DNS backup complete: $zoneCount zones backed up" -ForegroundColor Green
@@ -178,6 +183,44 @@ try {
     $output += "Total GPOs: $(($gpos | Measure-Object).Count)"
     $output += ""
     
+    # GPO Permissions (Apply Rights)
+    Write-Host "  Capturing GPO permissions..." -ForegroundColor Yellow
+    $output += "#" * 80
+    $output += "GPO PERMISSIONS (APPLY RIGHTS)"
+    $output += "#" * 80
+    
+    $gpoPermissions = @()
+    foreach ($gpo in $gpos) {
+        try {
+            $applyPermissions = Get-GPPermissions -Name $gpo.DisplayName -All -ErrorAction SilentlyContinue | 
+                Where-Object { $_.Permission -match "GpoApply" }
+            
+            if ($applyPermissions) {
+                foreach ($perm in $applyPermissions) {
+                    $gpoPermissions += [PSCustomObject]@{
+                        GPOName = $gpo.DisplayName
+                        Trustee = $perm.Trustee.Name
+                        TrusteeType = $perm.Trustee.SidType
+                        Permission = $perm.Permission
+                        Inherited = $perm.Inherited
+                    }
+                }
+            }
+        }
+        catch {
+            Write-Verbose "Could not retrieve permissions for GPO: $($gpo.DisplayName)"
+        }
+    }
+    
+    if ($gpoPermissions.Count -gt 0) {
+        $output += $gpoPermissions | Format-Table -AutoSize | Out-String
+        $output += "Total GPO Apply Permissions: $(($gpoPermissions | Measure-Object).Count)"
+    }
+    else {
+        $output += "No GPO apply permissions found or permissions could not be retrieved"
+    }
+    $output += ""
+    
     # GPO Links
     $output += "#" * 80
     $output += "GPO LINKS BY OU"
@@ -207,6 +250,7 @@ try {
     $groups | Export-Csv -Path "$adObjectsPath\Groups.csv" -NoTypeInformation
     $ous | Export-Csv -Path "$adObjectsPath\OUs.csv" -NoTypeInformation
     $gpos | Export-Csv -Path "$adObjectsPath\GPOs.csv" -NoTypeInformation
+    $gpoPermissions | Export-Csv -Path "$adObjectsPath\GPOPermissions.csv" -NoTypeInformation
     
     Write-Host "AD inventory complete: Data saved to $adObjectsPath" -ForegroundColor Green
 }
@@ -215,12 +259,13 @@ catch {
 }
 
 # Summary
-Write-Host ("=" * 80) -ForegroundColor Yellow
+Write-Host "`n" + ("=" * 80) -ForegroundColor Yellow
 Write-Host "Backup Summary - $dayOfWeek" -ForegroundColor Yellow
 Write-Host ("=" * 80) -ForegroundColor Yellow
 Write-Host "Backup Location: $backupPath\*\$dayOfWeek" -ForegroundColor White
 Write-Host "DNS Zones: $zoneCount backed up" -ForegroundColor White
+Write-Host "DNS Server Config: Exported" -ForegroundColor White
 Write-Host "GPOs: $gpoCount backed up" -ForegroundColor White
+Write-Host "GPO Permissions: $(($gpoPermissions | Measure-Object).Count) apply rights captured" -ForegroundColor White
 Write-Host "AD Objects: Inventory completed" -ForegroundColor White
 Write-Host ("=" * 80) -ForegroundColor Yellow
-
