@@ -250,6 +250,8 @@ try {
         
         try {
             # Export zone to file
+            Remove-Item -Path "C:\Windows\System32\dns\$($zoneName)" -Force -ErrorAction SilentlyContinue
+            sleep 5
             Export-DnsServerZone -Name $zoneName -FileName $zoneName -ErrorAction Stop
             $zoneCount++
             Write-Verbose "Exported DNS zone: $zoneName"
