@@ -14,5 +14,8 @@ The service account will require Full NTFS permission on ‘C:\ADBackup\’ and 
 
 Don’t allow the service account permissions to amend the backup script.
     
-Dont add Domain Admins to the service account 
+Ensure DNSAdmin has Server level and Zone level permissions. 
+
+Do Not add the service account to Domain Admins.
+
 
