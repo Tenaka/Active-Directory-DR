@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Daily Active Directory backup script for DNS zones, GPOs, and AD objects.
 .DESCRIPTION
@@ -13,13 +13,13 @@
 [CmdletBinding()]
 param()
 
-# Configuration
+#Configuration
 $backupPath = "C:\ADBackups"
 $dayOfWeek = (Get-Date).DayOfWeek
 $services = @("DNS", "GPO", "ADObjects")
 $dnsSystemPath = "$env:SystemRoot\System32\dns"
 
-# Initialize backup directory structure
+#Initialize backup directory structure
 foreach ($service in $services) {
     $targetPath = Join-Path -Path $backupPath -ChildPath "$service\$dayOfWeek"
     
@@ -35,13 +35,13 @@ foreach ($service in $services) {
     }
 }
 
-# DNS Zone and Configuration Backup
+#DNS Zone and Configuration Backup
 Write-Host "Starting DNS backup..." -ForegroundColor Cyan
 $dnsBackupPath = Join-Path -Path $backupPath -ChildPath "DNS\$dayOfWeek"
 $dnsConfigFile = Join-Path -Path $dnsBackupPath -ChildPath "DNSServerConfig.txt"
 
 try {
-    # Initialize DNS configuration output
+    #Initialize DNS configuration output
     $dnsConfig = @()
     $dnsConfig += "=" * 80
     $dnsConfig += "DNS Server Configuration Backup"
@@ -50,10 +50,10 @@ try {
     $dnsConfig += "=" * 80
     $dnsConfig += ""
     
-    # Export DNS server settings using dnscmd
+    #Export DNS server settings using dnscmd
     Write-Host "  Exporting DNS server configuration..." -ForegroundColor Yellow
     
-    # Server Info
+    #Server Info
     $dnsConfig += "#" * 80
     $dnsConfig += "DNS SERVER INFORMATION"
     $dnsConfig += "#" * 80
@@ -61,7 +61,7 @@ try {
     $dnsConfig += $serverInfo
     $dnsConfig += ""
     
-    # Forwarders
+    #Forwarders
     $dnsConfig += "#" * 80
     $dnsConfig += "FORWARDERS"
     $dnsConfig += "#" * 80
@@ -80,13 +80,13 @@ try {
     }
     $dnsConfig += ""
     
-    # Alternative forwarders using dnscmd
+    #Alternative forwarders using dnscmd
     $dnsConfig += "FORWARDERS (via dnscmd):"
     $forwardersCmd = dnscmd . /info /Forwarders 2>&1
     $dnsConfig += $forwardersCmd
     $dnsConfig += ""
     
-    # Root Hints
+    #Root Hints
     $dnsConfig += "#" * 80
     $dnsConfig += "ROOT HINTS"
     $dnsConfig += "#" * 80
@@ -105,13 +105,13 @@ try {
     }
     $dnsConfig += ""
     
-    # Alternative root hints using dnscmd
+    #Alternative root hints using dnscmd
     $dnsConfig += "ROOT HINTS (via dnscmd):"
     $rootHintsCmd = dnscmd . /info /RootHints 2>&1
     $dnsConfig += $rootHintsCmd
     $dnsConfig += ""
     
-    # Recursion Settings
+    #Recursion Settings
     $dnsConfig += "#" * 80
     $dnsConfig += "RECURSION SETTINGS"
     $dnsConfig += "#" * 80
@@ -128,13 +128,13 @@ try {
     }
     $dnsConfig += ""
     
-    # Alternative recursion using dnscmd
+    #Alternative recursion using dnscmd
     $dnsConfig += "RECURSION (via dnscmd):"
     $recursionCmd = dnscmd . /info /Recursion 2>&1
     $dnsConfig += $recursionCmd
     $dnsConfig += ""
     
-    # Scavenging Configuration
+    #Scavenging Configuration
     $dnsConfig += "#" * 80
     $dnsConfig += "SCAVENGING CONFIGURATION"
     $dnsConfig += "#" * 80
@@ -151,13 +151,13 @@ try {
     }
     $dnsConfig += ""
     
-    # Alternative scavenging using dnscmd
+    #Alternative scavenging using dnscmd
     $dnsConfig += "SCAVENGING (via dnscmd):"
     $scavengingCmd = dnscmd . /info /ScavengingInterval 2>&1
     $dnsConfig += $scavengingCmd
     $dnsConfig += ""
     
-    # Server-Level Settings
+    #Server-Level Settings
     $dnsConfig += "#" * 80
     $dnsConfig += "SERVER-LEVEL SETTINGS"
     $dnsConfig += "#" * 80
@@ -182,7 +182,7 @@ try {
     }
     $dnsConfig += ""
     
-    # Advanced Server Settings via dnscmd
+    #Advanced Server Settings via dnscmd
     $dnsConfig += "#" * 80
     $dnsConfig += "ADVANCED SERVER SETTINGS"
     $dnsConfig += "#" * 80
@@ -210,7 +210,7 @@ try {
     }
     $dnsConfig += ""
     
-    # Zone List with Details
+    #Zone List with Details
     $dnsConfig += "#" * 80
     $dnsConfig += "ZONE LIST WITH CONFIGURATION"
     $dnsConfig += "#" * 80
@@ -236,11 +236,11 @@ try {
     }
     $dnsConfig += ""
     
-    # Save DNS configuration to file
+    #Save DNS configuration to file
     $dnsConfig | Out-File -FilePath $dnsConfigFile -Encoding UTF8 -Force
     Write-Host "  DNS server configuration saved to: DNSServerConfig.txt" -ForegroundColor Green
     
-    # Backup DNS Zone Files
+    #Backup DNS Zone Files
     Write-Host "  Backing up DNS zone files..." -ForegroundColor Yellow
     $dnsZones = Get-DnsServerZone -ErrorAction Stop | Where-Object { -not $_.IsAutoCreated }
     $zoneCount = 0
@@ -249,7 +249,7 @@ try {
         $zoneName = $zone.ZoneName
         
         try {
-            # Export zone to file
+            #Export zone to file
             Remove-Item -Path "C:\Windows\System32\dns\$($zoneName)" -Force -ErrorAction SilentlyContinue
             sleep 5
             Export-DnsServerZone -Name $zoneName -FileName $zoneName -ErrorAction Stop
@@ -261,7 +261,7 @@ try {
         }
     }
     
-    # Copy all DNS files to backup location
+    #Copy all DNS files to backup location
     try {
         Copy-Item -Path "$dnsSystemPath\*" -Destination $dnsBackupPath -Force -ErrorAction Stop
         Write-Host "  DNS zone files copied to backup" -ForegroundColor Green
@@ -276,21 +276,21 @@ catch {
     Write-Error "Failed to backup DNS: $_"
 }
 
-# Group Policy Backup
+#Group Policy Backup
 Write-Host "Starting GPO backup..." -ForegroundColor Cyan
 $gpoBackupPath = Join-Path -Path $backupPath -ChildPath "GPO\$dayOfWeek"
 
 try {
-    # Clean previous GPO backups for this day
+    #Clean previous GPO backups for this day
     if (Test-Path -Path $gpoBackupPath) {
         Get-ChildItem -Path $gpoBackupPath -Recurse | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     }
     
-    # Backup all GPOs
+    #Backup all GPOs
     $gpoBackupResult = Backup-GPO -All -Path $gpoBackupPath -ErrorAction Stop
     $gpoCount = ($gpoBackupResult | Measure-Object).Count
     
-    # Save GPO backup reference
+    #Save GPO backup reference
     $gpoBackupResult | Select-Object DisplayName, GpoId, BackupDirectory, CreationTime |
         Export-Csv -Path "$gpoBackupPath\GPOBackupReference.csv" -NoTypeInformation
     
@@ -300,13 +300,13 @@ catch {
     Write-Error "Failed to backup GPOs: $_"
 }
 
-# Active Directory Objects Inventory
+#Active Directory Objects Inventory
 Write-Host "Starting AD objects inventory..." -ForegroundColor Cyan
 $adObjectsPath = Join-Path -Path $backupPath -ChildPath "ADObjects\$dayOfWeek"
 $adInventoryFile = Join-Path -Path $adObjectsPath -ChildPath "ADObjects.txt"
 
 try {
-    # Initialize output file
+    #Initialize output file
     $output = @()
     $output += "=" * 80
     $output += "Active Directory Objects Inventory - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
@@ -314,7 +314,7 @@ try {
     $output += "=" * 80
     $output += ""
     
-    # Computers
+    #Computers
     $output += "#" * 80
     $output += "COMPUTERS"
     $output += "#" * 80
@@ -324,7 +324,7 @@ try {
     $output += "Total Computers: $(($computers | Measure-Object).Count)"
     $output += ""
     
-    # Users
+    #Users
     $output += "#" * 80
     $output += "USERS"
     $output += "#" * 80
@@ -334,7 +334,7 @@ try {
     $output += "Total Users: $(($users | Measure-Object).Count)"
     $output += ""
     
-    # Groups
+    #Groups
     $output += "#" * 80
     $output += "GROUPS"
     $output += "#" * 80
@@ -344,7 +344,7 @@ try {
     $output += "Total Groups: $(($groups | Measure-Object).Count)"
     $output += ""
     
-    # Group Memberships
+    #Group Memberships
     $output += "#" * 80
     $output += "GROUP MEMBERSHIPS"
     $output += "#" * 80
@@ -354,7 +354,7 @@ try {
                 Select-Object Name, DistinguishedName, ObjectClass
             
             if ($members) {
-                $output += "`nGroup: $($group.Name)"
+                $output += "`nGroup_Members: $($group.Name)"
                 $output += "-" * 80
                 $output += $members | Format-Table -AutoSize | Out-String
             }
@@ -365,7 +365,32 @@ try {
     }
     $output += ""
     
-    # Organizational Units
+    #Group MemberOf
+    $output += "#" * 80
+    $output += "MEMBEROF GROUP"
+    $output += "#" * 80
+    foreach ($group in $groups) {
+        try {
+            $memberOf = Get-ADGroup -Identity $group.DistinguishedName -Properties MemberOf -ErrorAction SilentlyContinue |
+                Select-Object -ExpandProperty MemberOf |
+                ForEach-Object {
+                    Get-ADGroup -Identity $_ -ErrorAction SilentlyContinue |
+                    Select-Object Name, DistinguishedName, GroupCategory
+                }
+        
+            if ($memberOf) {
+                $output += "`nGroup_MemberOf: $($group.Name)"
+                $output += "-" * 80
+                $output += $memberOf | Format-Table -AutoSize | Out-String
+            }
+        }
+        catch {
+            Write-Verbose "Could not retrieve memberOf for group: $($group.Name)"
+        }
+    }
+    $output += ""
+    
+    #Organizational Units
     $output += "#" * 80
     $output += "ORGANIZATIONAL UNITS"
     $output += "#" * 80
@@ -375,7 +400,7 @@ try {
     $output += "Total OUs: $(($ous | Measure-Object).Count)"
     $output += ""
     
-    # GPO Information
+    #GPO Information
     $output += "#" * 80
     $output += "GROUP POLICY OBJECTS"
     $output += "#" * 80
@@ -384,7 +409,7 @@ try {
     $output += "Total GPOs: $(($gpos | Measure-Object).Count)"
     $output += ""
     
-    # GPO Permissions (Apply Rights)
+    #GPO Permissions (Apply Rights)
     Write-Host "  Capturing GPO permissions..." -ForegroundColor Yellow
     $output += "#" * 80
     $output += "GPO PERMISSIONS (APPLY RIGHTS)"
@@ -422,7 +447,7 @@ try {
     }
     $output += ""
     
-    # GPO Links
+    #GPO Links
     $output += "#" * 80
     $output += "GPO LINKS BY OU"
     $output += "#" * 80
@@ -442,10 +467,10 @@ try {
         }
     }
     
-    # Write to file
+    #Write to file
     $output | Out-File -FilePath $adInventoryFile -Encoding UTF8 -Force
     
-    # Export structured data as CSV for easier parsing
+    #Export structured data as CSV for easier parsing
     $computers | Export-Csv -Path "$adObjectsPath\Computers.csv" -NoTypeInformation
     $users | Export-Csv -Path "$adObjectsPath\Users.csv" -NoTypeInformation
     $groups | Export-Csv -Path "$adObjectsPath\Groups.csv" -NoTypeInformation
@@ -459,7 +484,7 @@ catch {
     Write-Error "Failed to create AD objects inventory: $_"
 }
 
-# Summary
+#Summary
 Write-Host ("=" * 80) -ForegroundColor Yellow
 Write-Host "Backup Summary - $dayOfWeek" -ForegroundColor Yellow
 Write-Host ("=" * 80) -ForegroundColor Yellow
